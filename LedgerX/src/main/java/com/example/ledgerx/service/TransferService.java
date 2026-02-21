@@ -1,5 +1,6 @@
 package com.example.ledgerx.service;
 
+import com.example.ledgerx.audit.AuditableTransfer;
 import com.example.ledgerx.entity.Account;
 import com.example.ledgerx.entity.AccountStatus;
 import com.example.ledgerx.entity.EntryDirection;
@@ -32,6 +33,7 @@ public class TransferService {
     private final TransactionRepository transactionRepository;
     private final LedgerEntryRepository ledgerEntryRepository;
 
+    @AuditableTransfer
     @Transactional(isolation = Isolation.READ_COMMITTED, propagation = Propagation.REQUIRES_NEW)
     public Transaction processTransfer(
             String fromAccountNum,
