@@ -1,6 +1,6 @@
 package com.example.ledgerx.service;
 
-import com.example.ledgerx.audit.AuditableTransfer;
+import com.example.ledgerx.audit.TransferCompletedEvent;
 import com.example.ledgerx.entity.Account;
 import com.example.ledgerx.entity.AccountStatus;
 import com.example.ledgerx.entity.EntryDirection;
@@ -16,6 +16,7 @@ import com.example.ledgerx.repository.AccountRepository;
 import com.example.ledgerx.repository.LedgerEntryRepository;
 import com.example.ledgerx.repository.TransactionRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
@@ -32,8 +33,9 @@ public class TransferService {
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final LedgerEntryRepository ledgerEntryRepository;
+    private final ApplicationEventPublisher applicationEventPublisher;
+    private final TransactionStatusService transactionStatusService;
 
-    @AuditableTransfer
     @Transactional(isolation = Isolation.READ_COMMITTED, propagation = Propagation.REQUIRES_NEW)
     public Transaction processTransfer(
             String fromAccountNum,
@@ -57,50 +59,59 @@ public class TransferService {
             );
         }
 
-        Transaction transaction = transactionRepository.save(
-                Transaction.builder()
-                        .idempotencyKey(idempotencyKey)
-                        .status(TransactionStatus.PENDING)
-                        .build()
-        );
+        try {
+            Transaction transaction = transactionRepository.save(
+                    Transaction.builder()
+                            .idempotencyKey(idempotencyKey)
+                            .status(TransactionStatus.PENDING)
+                            .build()
+            );
 
-        validateRequest(fromAccountNum, toAccountNum, amount, currency, idempotencyKey);
+            validateRequest(fromAccountNum, toAccountNum, amount, currency, idempotencyKey);
 
-        List<String> orderedAccountNumbers = List.of(fromAccountNum, toAccountNum).stream()
-                .sorted()
-                .toList();
+            List<String> orderedAccountNumbers = List.of(fromAccountNum, toAccountNum).stream()
+                    .sorted()
+                    .toList();
 
-        Account firstLocked = findByAccountNumberForUpdateOrThrow(orderedAccountNumbers.get(0));
-        Account secondLocked = findByAccountNumberForUpdateOrThrow(orderedAccountNumbers.get(1));
+            Account firstLocked = findByAccountNumberForUpdateOrThrow(orderedAccountNumbers.get(0));
+            Account secondLocked = findByAccountNumberForUpdateOrThrow(orderedAccountNumbers.get(1));
 
-        Account fromAccount = firstLocked.getAccountNumber().equals(fromAccountNum) ? firstLocked : secondLocked;
-        Account toAccount = firstLocked.getAccountNumber().equals(toAccountNum) ? firstLocked : secondLocked;
+            Account fromAccount = firstLocked.getAccountNumber().equals(fromAccountNum) ? firstLocked : secondLocked;
+            Account toAccount = firstLocked.getAccountNumber().equals(toAccountNum) ? firstLocked : secondLocked;
 
-        validateBusinessRules(fromAccount, toAccount, amount, currency);
+            validateBusinessRules(fromAccount, toAccount, amount, currency);
 
-        fromAccount.setBalance(fromAccount.getBalance().subtract(amount));
-        toAccount.setBalance(toAccount.getBalance().add(amount));
+            fromAccount.setBalance(fromAccount.getBalance().subtract(amount));
+            toAccount.setBalance(toAccount.getBalance().add(amount));
 
-        LedgerEntry debitEntry = LedgerEntry.builder()
-                .transaction(transaction)
-                .account(fromAccount)
-                .amount(amount)
-                .direction(EntryDirection.DEBIT)
-                .build();
+            LedgerEntry debitEntry = LedgerEntry.builder()
+                    .transaction(transaction)
+                    .account(fromAccount)
+                    .amount(amount)
+                    .direction(EntryDirection.DEBIT)
+                    .build();
 
-        LedgerEntry creditEntry = LedgerEntry.builder()
-                .transaction(transaction)
-                .account(toAccount)
-                .amount(amount)
-                .direction(EntryDirection.CREDIT)
-                .build();
+            LedgerEntry creditEntry = LedgerEntry.builder()
+                    .transaction(transaction)
+                    .account(toAccount)
+                    .amount(amount)
+                    .direction(EntryDirection.CREDIT)
+                    .build();
 
-        ledgerEntryRepository.save(debitEntry);
-        ledgerEntryRepository.save(creditEntry);
+            ledgerEntryRepository.save(debitEntry);
+            ledgerEntryRepository.save(creditEntry);
 
-        transaction.setStatus(TransactionStatus.COMPLETED);
-        transaction.setCompletedAt(Instant.now());
-        return transactionRepository.save(transaction);
+            transaction.setStatus(TransactionStatus.COMPLETED);
+            transaction.setCompletedAt(Instant.now());
+            Transaction completedTransaction = transactionRepository.save(transaction);
+            applicationEventPublisher.publishEvent(new TransferCompletedEvent(fromAccountNum, toAccountNum, amount));
+            return completedTransaction;
+        } catch (LedgerException ex) {
+            if (!(ex instanceof IdempotencyConflictException)) {
+                transactionStatusService.recordFailedTransaction(idempotencyKey, ex.getMessage());
+            }
+            throw ex;
+        }
     }
 
     private void validateRequest(
