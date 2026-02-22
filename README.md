@@ -103,7 +103,7 @@ The following results were captured during a high-concurrency stress test using 
 
 ### 1. Infrastructure Setup
 
-Boot the PostgreSQL database using Docker:
+Booting the PostgreSQL database using Docker:
 
 ```bash
 docker run --name ledgerx-postgres \
