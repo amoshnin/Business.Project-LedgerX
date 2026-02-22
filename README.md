@@ -11,25 +11,26 @@ The repository includes the core backend API and a Next.js dashboard for real-ti
 ## System Architecture
 
 ```mermaid
+
 flowchart LR
-    UI["Next.js Operations Dashboard"] --> API["Spring Boot API Gateway"]
-    
-    subgraph Core Transfer Engine
-        API --> IDEMP["Idempotency Filter"]
-        IDEMP --> LOCK["Deterministic Lock Acquisition"]
-        LOCK --> TXM["Transaction Manager"]
-    end
-    
-    subgraph PostgreSQL (Source of Truth)
-        TXM --> DB[(RDBMS)]
-        DB --> ACC["accounts"]
-        DB --> TX["transactions"]
-        DB --> LE["ledger_entries"]
-    end
-    
-    subgraph Async Compliance
-        TXM -. "TransactionPhase.AFTER_COMMIT" .-> AUD["audit_logs"]
-    end
+
+    UI["Next.js Dashboard UI"] --> API["Spring Boot API Layer"]
+
+    API --> IDEMP["Idempotency-Key Validation"]
+
+    IDEMP --> LOCK["Pessimistic Row Locking (FOR UPDATE)"]
+
+    LOCK --> DB[(PostgreSQL)]
+
+
+
+    DB --> ACC["accounts"]
+
+    DB --> TX["transactions"]
+
+    DB --> LE["ledger_entries"]
+
+    DB --> AUD["audit_logs"]
 
 ```
 
@@ -123,8 +124,8 @@ The dashboard will be available at `http://localhost:3000`.
 
 ## Author
 
-[cite_start]**Artem Moshnin** [cite: 1]
+**Artem Moshnin**
 * Full-Stack Software Engineer & ML Specialist
-* [cite_start][Website & Portfolio](https://artemmoshnin.com) 
-* [cite_start][LinkedIn](https://linkedin.com/in/amoshnin) 
-* [cite_start][GitHub](https://github.com/amoshnin)
+* [Website & Portfolio](https://artemmoshnin.com) 
+* [LinkedIn](https://linkedin.com/in/amoshnin) 
+* [GitHub](https://github.com/amoshnin)
