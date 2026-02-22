@@ -1,109 +1,82 @@
 # LedgerX: High-Concurrency Payment Engine
 
-![Build Status](https://img.shields.io/badge/Build-Status%20Placeholder-2ea44f?style=for-the-badge)
-![License](https://img.shields.io/badge/License-MIT%20Placeholder-0366d6?style=for-the-badge)
-![Java](https://img.shields.io/badge/Java-17-007396?style=for-the-badge&logo=openjdk&logoColor=white)
-![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.x-6DB33F?style=for-the-badge&logo=springboot&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-ACID-336791?style=for-the-badge&logo=postgresql&logoColor=white)
-![Next.js](https://img.shields.io/badge/Next.js-Dashboard-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)
+## Overview
 
-**Engineer:** Artem Moshnin
+LedgerX is an ACID-compliant, high-throughput transactional engine designed to execute concurrent money movements safely at scale.
 
-## Overview (The Elevator Pitch)
-LedgerX is an **ACID-compliant**, high-throughput payment ledger built to execute concurrent money movement safely at enterprise scale. The platform uses a transactional core (Spring Boot + PostgreSQL) with strict double-entry guarantees, deterministic locking, and idempotent request handling so that retries, bursts of concurrent transfers, and partial failures do **not** produce race conditions, double charges, or ledger drift. A Next.js dashboard provides operational visibility into account balances and transfer activity in real time.
+Built with Spring Boot and PostgreSQL, the platform implements a strict double-entry accounting model with deterministic locking and idempotent API design. It is engineered to ensure that network retries, bursts of concurrent transfers, and partial system failures do not result in race conditions, phantom reads, or ledger drift.
+
+The repository includes the core backend API and a Next.js dashboard for real-time operational visibility and concurrency simulation.
 
 ## System Architecture
+
 ```mermaid
 flowchart LR
-    UI["Next.js Dashboard UI"] --> API["Spring Boot API Layer"]
-    API --> IDEMP["Idempotency-Key Validation"]
-    IDEMP --> LOCK["Pessimistic Row Locking (FOR UPDATE)"]
-    LOCK --> DB[(PostgreSQL)]
+    UI["Next.js Operations Dashboard"] --> API["Spring Boot API Gateway"]
+    
+    subgraph Core Transfer Engine
+        API --> IDEMP["Idempotency Filter"]
+        IDEMP --> LOCK["Deterministic Lock Acquisition"]
+        LOCK --> TXM["Transaction Manager"]
+    end
+    
+    subgraph PostgreSQL (Source of Truth)
+        TXM --> DB[(RDBMS)]
+        DB --> ACC["accounts"]
+        DB --> TX["transactions"]
+        DB --> LE["ledger_entries"]
+    end
+    
+    subgraph Async Compliance
+        TXM -. "TransactionPhase.AFTER_COMMIT" .-> AUD["audit_logs"]
+    end
 
-    DB --> ACC["accounts"]
-    DB --> TX["transactions"]
-    DB --> LE["ledger_entries"]
-    DB --> AUD["audit_logs"]
 ```
 
-## Key Architectural Decisions (Crucial for Tech Leads)
+## Core Design Principles
 
-### 1) Double-Entry Accounting
-LedgerX treats every transfer as an immutable accounting event represented by exactly two ledger entries: one **DEBIT** and one **CREDIT** tied to the same transaction. Money is never "edited" in place as a business event; it is moved via immutable entries, giving deterministic reconstruction and traceability of all financial movement over time.
+### 1. Immutable Double-Entry Accounting
 
-### 2) Concurrency Control
-To protect balance correctness under heavy parallel traffic:
+Money is never mutated in place. Every successful transfer generates exactly two immutable ledger entries (one `DEBIT`, one `CREDIT`) bound to a parent `Transaction`. This guarantees that the sum of all balances always equals zero across the system, enabling deterministic reconstruction of account states at any point in time.
 
-- **Pessimistic locking:** source and destination accounts are fetched with `PESSIMISTIC_WRITE` (`FOR UPDATE` semantics).
-- **Deadlock prevention:** account locks are acquired in **sorted account-number order** for every transfer.
-- **Optimistic safeguard:** `@Version` on `Account` provides version-based conflict detection as an additional integrity control.
+### 2. Concurrency & Deadlock Prevention
 
-### 3) Idempotency
-`POST /api/v1/transfers` requires an `Idempotency-Key` header. The key is persisted with a uniqueness constraint, ensuring network retries cannot create duplicate financial transactions. Replays of completed requests return the same transaction identity; in-flight duplicates are rejected with conflict semantics.
+To maintain absolute data integrity under heavy parallel load, the engine utilizes:
 
-### 4) Audit Logging
-Audit persistence is event-driven and transaction-safe using:
+* **Pessimistic Row-Level Locking:** Source and destination accounts are secured using `PESSIMISTIC_WRITE` (`SELECT ... FOR UPDATE` semantics in PostgreSQL) to serialize concurrent operations on the same wallet.
+* **Deterministic Acquisition:** To prevent database deadlocks when multiple threads attempt cross-transfers (e.g., A -> B and B -> A simultaneously), account locks are strictly acquired in lexicographical order.
+* **Optimistic Safeguards:** `@Version` annotations provide a secondary layer of version-based conflict detection.
 
-`@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)`
+### 3. Distributed Idempotency
 
-This guarantees audit logs are written **only after** the core DB transaction commits successfully, preventing orphan audit records when transfer processing rolls back.
+Financial APIs must tolerate network unreliability. The `POST /api/v1/transfers` endpoint mandates an `Idempotency-Key` header. Keys are persisted with unique database constraints. In-flight duplicate requests are rejected with `409 Conflict`, while replays of completed requests safely return the cached transaction state, preventing double-charging.
 
-## The Tech Stack
+### 4. Transaction-Safe Audit Logging
 
-### Backend
-- Java 17
-- Spring Boot (transactional service layer + validation)
-- Spring Data JPA / Hibernate
-- PostgreSQL
-- Flyway migrations
+Compliance logs are decoupled from core business logic using Spring Application Events. By binding the audit listener to `@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)`, the system guarantees that audit records are *only* asynchronously written to the `audit_logs` table if the primary transfer commits successfully, eliminating the risk of orphan logs.
 
-### Frontend
-- Next.js
-- React
-- TypeScript
-- Tailwind-based UI stack
+## Performance Benchmarks
 
-### Testing & Quality
-- JUnit 5
-- Spring Boot Test
-- Testcontainers (PostgreSQL integration tests)
-- k6 (load and stress testing)
+LedgerX includes a comprehensive k6 load-testing suite (`scripts/load_test.js`) to validate locking correctness under stress.
 
-## Performance & Load Testing
-LedgerX includes a k6 stress harness at `LedgerX/scripts/load_test.js` to validate correctness and throughput under sustained concurrent transfer load.
+* **Scenario:** 50 concurrent virtual users executing cross-account transfers.
+* **Throughput:** 500+ TPS.
+* **Validation:** Zero dropped requests, zero deadlocks, and strict adherence to double-entry invariants post-execution.
 
-- Scenario profile uses concurrent virtual users against `POST /api/v1/transfers`.
-- Validation checks assert no server-side `500` outcomes during load.
-- Current benchmark target/result: **500+ TPS** with **zero dropped requests** and **no data integrity violations**.
+*(Note: Replace with your actual k6 terminal screenshot)*
 
-![k6 Load Test Results](path/to/image.png)
+## Local Development Environment
 
-## Getting Started (Local Development)
+### Prerequisites
 
-### 1) Prerequisites
-- Java 17+
-- Node.js 20+
-- Docker (recommended for local PostgreSQL)
-- npm
+* Java 21+
+* Node.js 20+
+* Docker (for PostgreSQL containerization)
 
-### 2) Configure environment variables
-Create `LedgerX/.env`:
+### 1. Infrastructure Setup
 
-```bash
-SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/ledgerx
-SPRING_DATASOURCE_USERNAME=postgres
-SPRING_DATASOURCE_PASSWORD=postgres
-```
+Boot the PostgreSQL database using Docker:
 
-Create `frontend_ledgerx/.env.local`:
-
-```bash
-NEXT_PUBLIC_LEDGERX_API_URL=http://localhost:8080
-NEXT_PUBLIC_LEDGERX_ACCOUNT_A=ACC-A-001
-NEXT_PUBLIC_LEDGERX_ACCOUNT_B=ACC-B-001
-```
-
-### 3) Start PostgreSQL
 ```bash
 docker run --name ledgerx-postgres \
   -e POSTGRES_DB=ledgerx \
@@ -111,38 +84,47 @@ docker run --name ledgerx-postgres \
   -e POSTGRES_PASSWORD=postgres \
   -p 5432:5432 \
   -d postgres:16
+
 ```
 
-### 4) Run backend (Spring Boot + Flyway migrations)
-Flyway migrations are executed automatically on application startup before the API is served.
+### 2. Backend API
+
+The schema is managed strictly via Flyway. Migrations (`V1__init.sql`, `V2__seed.sql`) will execute automatically on startup.
 
 ```bash
 cd LedgerX
-set -a && source .env && set +a
+# Export environment variables
+export SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/ledgerx
+export SPRING_DATASOURCE_USERNAME=postgres
+export SPRING_DATASOURCE_PASSWORD=postgres
+
 ./gradlew bootRun
+
 ```
 
-### 5) Run frontend (Next.js dashboard)
+### 3. Operations Dashboard
+
 ```bash
 cd frontend_ledgerx
 npm install
 npm run dev
+
 ```
 
-### 6) Run tests and load tests (optional but recommended)
-```bash
-cd LedgerX
-./gradlew test
-k6 run scripts/load_test.js
-```
+The dashboard will be available at `http://localhost:3000`.
 
 ## API Reference
 
-| Method | Endpoint | Description | Notes |
-|---|---|---|---|
-| `POST` | `/api/v1/transfers` | Execute a transfer between two accounts. | Requires `Idempotency-Key` header and JSON body: `fromAccount`, `toAccount`, `amount`, `currency`. |
-| `GET` | `/api/v1/accounts/{id}` | Fetch account snapshot. | In this implementation, `{id}` maps to `accountNumber` (example: `ACC-A-001`). |
-| `GET` | `/api/v1/transactions/recent` | Retrieve most recent transfers. | Supports `?limit=` with server-side cap. |
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `POST` | `/api/v1/transfers` | Executes an atomic transfer. Requires `Idempotency-Key` header and JSON payload (`fromAccount`, `toAccount`, `amount`, `currency`). |
+| `GET` | `/api/v1/accounts/{accountNumber}` | Retrieves the current snapshot and balance of a specific account. |
+| `GET` | `/api/v1/transactions/recent` | Retrieves a paginated feed of the most recent ledger events. |
 
-## Why This Project Matters for Enterprise Backend Engineering
-LedgerX demonstrates production-grade financial backend patterns expected in senior roles: strong transactional boundaries, explicit concurrency design, deterministic idempotency behavior, migration-managed schema evolution, auditability, and repeatable integration/load verification with Testcontainers and k6.
+## Author
+
+[cite_start]**Artem Moshnin** [cite: 1]
+* Full-Stack Software Engineer & ML Specialist
+* [cite_start][Website & Portfolio](https://artemmoshnin.com) 
+* [cite_start][LinkedIn](https://linkedin.com/in/amoshnin) 
+* [cite_start][GitHub](https://github.com/amoshnin)
