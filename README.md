@@ -162,8 +162,7 @@ Retrieves a paginated feed of the most recent ledger events.
 
 ## Author
 
-**Artem Moshnin**
-* Full-Stack Software Engineer & ML Specialist
+**Artem Moshnin** (Full-Stack Software & ML Engineer)
 * [Personal Website](https://artemmoshnin.com) 
 * [LinkedIn](https://linkedin.com/in/amoshnin) 
 * [GitHub](https://github.com/amoshnin)
