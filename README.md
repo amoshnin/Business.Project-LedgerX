@@ -13,7 +13,7 @@ The repository includes the core backend API and a Next.js operations dashboard 
 ```mermaid
 flowchart TD
     UI["Next.js Operations Dashboard"] -->|REST / JSON| API["Spring Boot API Gateway"]
-    
+
     subgraph Engine [Core Transfer Engine]
         API --> IDEMP{"Idempotency Check"}
         IDEMP -- "Duplicate" --> REJ["Return Cached / 409 Conflict"]
@@ -21,13 +21,13 @@ flowchart TD
         LOCK --> VAL["Business Rule Validation"]
         VAL --> MUT["Balance Mutation & Ledger Writes"]
     end
-    
+
     subgraph Database [PostgreSQL Database]
         LOCK -->|SELECT FOR UPDATE| ACC[("accounts")]
         MUT -->|INSERT| TX[("transactions")]
         MUT -->|INSERT| LE[("ledger_entries")]
     end
-    
+
     subgraph Compliance [Async Compliance Pipeline]
         MUT -.->|"AFTER_COMMIT"| EVENT["TransferCompletedEvent"]
         EVENT --> AUDIT["AuditEventListener (@Async)"]
@@ -46,47 +46,60 @@ The frontend is not just a UI; it operates as a dedicated visual stress-testing 
 
 Money is never mutated in place as a standalone action. Every successful transfer generates exactly two immutable ledger entries (one `DEBIT`, one `CREDIT`) bound to a parent `Transaction` record.
 
-* **Why:** This guarantees that the sum of all balances always equals zero across the system, enabling deterministic reconstruction of account states at any point in time and providing a cryptographically verifiable audit trail.
+- **Why:** This guarantees that the sum of all balances always equals zero across the system, enabling deterministic reconstruction of account states at any point in time and providing a cryptographically verifiable audit trail.
 
 ### 2. Concurrency & Deadlock Prevention
 
 To maintain absolute data integrity under heavy parallel load, the engine utilizes a multi-layered locking strategy:
 
-* **Pessimistic Row-Level Locking:** Source and destination accounts are secured using `PESSIMISTIC_WRITE` (`SELECT ... FOR UPDATE` semantics in PostgreSQL) to serialize concurrent operations on the same wallet.
-* **Deterministic Acquisition:** To prevent database deadlocks when multiple threads attempt cross-transfers (e.g., A -> B and B -> A simultaneously), account locks are strictly acquired in lexicographical order based on the account number.
-* **Optimistic Safeguards:** `@Version` annotations on the `Account` entity provide a secondary layer of version-based conflict detection, ensuring lost updates are caught even if explicit locks are bypassed.
+- **Pessimistic Row-Level Locking:** Source and destination accounts are secured using `PESSIMISTIC_WRITE` (`SELECT ... FOR UPDATE` semantics in PostgreSQL) to serialize concurrent operations on the same wallet.
+- **Deterministic Acquisition:** To prevent database deadlocks when multiple threads attempt cross-transfers (e.g., A -> B and B -> A simultaneously), account locks are strictly acquired in lexicographical order based on the account number.
+- **Optimistic Safeguards:** `@Version` annotations on the `Account` entity provide a secondary layer of version-based conflict detection, ensuring lost updates are caught even if explicit locks are bypassed.
 
 ### 3. Distributed Idempotency
 
 Financial APIs must tolerate network unreliability. The `POST /api/v1/transfers` endpoint mandates an `Idempotency-Key` header. Keys are persisted with unique database constraints.
 
-* **In-flight Duplicates:** Rejected instantly with a `409 Conflict` (mapped from `DataIntegrityViolationException`).
-* **Completed Replays:** Safely return the cached transaction state, preventing double-charging.
+- **In-flight Duplicates:** Rejected instantly with a `409 Conflict` (mapped from `DataIntegrityViolationException`).
+- **Completed Replays:** Safely return the cached transaction state, preventing double-charging.
 
 ### 4. Transaction-Safe Audit & Failure Logging
 
 Compliance logs are decoupled from core business logic using Spring Application Events.
 
-* **Success Logging:** By binding the audit listener to `@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)`, the system guarantees that audit records are *only* asynchronously written to the `audit_logs` table if the primary transfer commits successfully, eliminating orphan logs.
-* **Failure Tracking:** Business validation failures (e.g., `InsufficientFundsException`) trigger a separate logging service running with `Propagation.REQUIRES_NEW`. This ensures the failure attempt is securely recorded to the database even as the main transfer transaction rolls back.
+- **Success Logging:** By binding the audit listener to `@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)`, the system guarantees that audit records are _only_ asynchronously written to the `audit_logs` table if the primary transfer commits successfully, eliminating orphan logs.
+- **Failure Tracking:** Business validation failures (e.g., `InsufficientFundsException`) trigger a separate logging service running with `Propagation.REQUIRES_NEW`. This ensures the failure attempt is securely recorded to the database even as the main transfer transaction rolls back.
 
 ## Testing & Quality Assurance
 
 LedgerX relies on a rigorous testing pipeline to guarantee financial correctness:
 
-* **Testcontainers Integration:** All repository and service tests run against a disposable, containerized PostgreSQL instance, ensuring locking behaviors exactly match production environments.
-* **Concurrency Stress Tests:** A dedicated `TransferServiceConcurrencyTest` utilizes `ExecutorService` and `CountDownLatch` to blast the service with 100+ simultaneous threads, asserting that race conditions do not occur and that final balances precisely match the ledger entries.
-* **K6 Load Testing:** A k6 script (`scripts/load_test.js`) validates system throughput, currently benchmarking at **500+ TPS** with zero dropped requests and zero data integrity violations.
+- **Testcontainers Integration:** All repository and service tests run against a disposable, containerized PostgreSQL instance, ensuring locking behaviors exactly match production environments.
+- **Concurrency Stress Tests:** A dedicated `TransferServiceConcurrencyTest` utilizes `ExecutorService` and `CountDownLatch` to blast the service with 100+ simultaneous threads, asserting that race conditions do not occur and that final balances precisely match the ledger entries.
+- **K6 Load Testing:** A k6 script (`scripts/load_test.js`) validates system throughput, currently benchmarking at **500+ TPS** with zero dropped requests and zero data integrity violations.
 
-*(Note: Replace with your actual k6 terminal screenshot)*
+The following results were captured during a high-concurrency stress test using **k6**. The test simulates 50 concurrent users performing "hot-wallet" transfers to verify that our database row-level locking handles extreme contention without failing.
+
+<p align="center">
+  <img src="assets/k6_test.png" width="800" alt="k6 Stress Test Benchmarks">
+</p>
+
+### Benchmark Results (Local Docker Environment)
+
+- **Throughput:** ~98.4 TPS (Transactions Per Second)
+- **Reliability:** 100% Success Rate (3,023/3,023 requests)
+- **Concurrency:** 50 Virtual Users (VUs)
+- **P95 Latency:** 825ms under high contention
+
+> **Analysis:** The system maintained perfect ACID compliance under a sustained load of ~100 TPS. The 0% failure rate validates that our `SELECT ... FOR UPDATE` locking strategy correctly serializes high-contention requests without timing out or deadlocking.
 
 ## Local Development Environment
 
 ### Prerequisites
 
-* Java 21+
-* Node.js 20+
-* Docker (for PostgreSQL containerization)
+- Java 21+
+- Node.js 20+
+- Docker (for PostgreSQL containerization)
 
 ### 1. Infrastructure Setup
 
@@ -134,7 +147,7 @@ The dashboard will be available at `http://localhost:3000`.
 Executes an atomic transfer.
 **Headers:**
 
-* `Idempotency-Key` (Required, UUID)
+- `Idempotency-Key` (Required, UUID)
 
 **Request Body:**
 
@@ -142,18 +155,17 @@ Executes an atomic transfer.
 {
   "fromAccount": "ACC-A-001",
   "toAccount": "ACC-B-001",
-  "amount": 50.00,
+  "amount": 50.0,
   "currency": "USD"
 }
-
 ```
 
 **Responses:**
 
-* `200 OK`: Transfer successful or cached response returned.
-* `400 Bad Request`: Validation failure (e.g., negative amount).
-* `409 Conflict`: Idempotency collision or database lock contention.
-* `422 Unprocessable Entity`: Insufficient funds.
+- `200 OK`: Transfer successful or cached response returned.
+- `400 Bad Request`: Validation failure (e.g., negative amount).
+- `409 Conflict`: Idempotency collision or database lock contention.
+- `422 Unprocessable Entity`: Insufficient funds.
 
 ### 2. Fetch Account
 
@@ -169,6 +181,6 @@ Retrieves a paginated feed of the most recent ledger events.
 
 **Artem Moshnin** (Full-Stack Software & ML Engineer)
 
-* [Personal Website](https://artemmoshnin.com)
-* [LinkedIn](https://linkedin.com/in/amoshnin)
-* [GitHub](https://github.com/amoshnin)
+- [Personal Website](https://artemmoshnin.com)
+- [LinkedIn](https://linkedin.com/in/amoshnin)
+- [GitHub](https://github.com/amoshnin)
