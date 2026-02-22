@@ -4,65 +4,75 @@
 
 LedgerX is an ACID-compliant, high-throughput transactional engine designed to execute concurrent money movements safely at scale.
 
-Built with Spring Boot and PostgreSQL, the platform implements a strict double-entry accounting model with deterministic locking and idempotent API design. It is engineered to ensure that network retries, bursts of concurrent transfers, and partial system failures do not result in race conditions, phantom reads, or ledger drift.
+Built for financial environments where data integrity is paramount, the platform implements a strict double-entry accounting model, deterministic pessimistic locking, and idempotent API design. It is engineered to ensure that network retries, bursts of concurrent transfers, and partial system failures do not result in race conditions, phantom reads, or ledger drift.
 
-The repository includes the core backend API and a Next.js dashboard for real-time operational visibility and concurrency simulation.
+The repository includes the core backend API and a Next.js operations dashboard for real-time visibility and concurrency simulation.
 
 ## System Architecture
 
 ```mermaid
-
-flowchart LR
-
-    UI["Next.js Dashboard UI"] --> API["Spring Boot API Layer"]
-
-    API --> IDEMP["Idempotency-Key Validation"]
-
-    IDEMP --> LOCK["Pessimistic Row Locking (FOR UPDATE)"]
-
-    LOCK --> DB[(PostgreSQL)]
-
-
-
-    DB --> ACC["accounts"]
-
-    DB --> TX["transactions"]
-
-    DB --> LE["ledger_entries"]
-
-    DB --> AUD["audit_logs"]
+flowchart TD
+    UI["Next.js Operations Dashboard"] -->|REST / JSON| API["Spring Boot API Gateway"]
+    
+    subgraph Core Transfer Engine [TransferService.java]
+        API --> IDEMP{"Idempotency Check"}
+        IDEMP -- Duplicate --> REJ["Return Cached / 409 Conflict"]
+        IDEMP -- New --> LOCK["Acquire Pessimistic Locks (Ordered)"]
+        LOCK --> VAL["Business Rule Validation"]
+        VAL --> MUT["Balance Mutation & Ledger Writes"]
+    end
+    
+    subgraph Relational Database (PostgreSQL)
+        LOCK -->|SELECT FOR UPDATE| ACC[("accounts")]
+        MUT -->|INSERT| TX[("transactions")]
+        MUT -->|INSERT| LE[("ledger_entries")]
+    end
+    
+    subgraph Async Compliance Pipeline
+        MUT -.->|TransactionPhase.AFTER_COMMIT| EVENT["TransferCompletedEvent"]
+        EVENT --> AUDIT["AuditEventListener (@Async)"]
+        AUDIT -->|INSERT| AUD[("audit_logs")]
+    end
 
 ```
 
-## Core Design Principles
+## Core Architectural Decisions
 
 ### 1. Immutable Double-Entry Accounting
 
-Money is never mutated in place. Every successful transfer generates exactly two immutable ledger entries (one `DEBIT`, one `CREDIT`) bound to a parent `Transaction`. This guarantees that the sum of all balances always equals zero across the system, enabling deterministic reconstruction of account states at any point in time.
+Money is never mutated in place as a standalone action. Every successful transfer generates exactly two immutable ledger entries (one `DEBIT`, one `CREDIT`) bound to a parent `Transaction` record.
+
+* **Why:** This guarantees that the sum of all balances always equals zero across the system, enabling deterministic reconstruction of account states at any point in time and providing a cryptographically verifiable audit trail.
 
 ### 2. Concurrency & Deadlock Prevention
 
-To maintain absolute data integrity under heavy parallel load, the engine utilizes:
+To maintain absolute data integrity under heavy parallel load, the engine utilizes a multi-layered locking strategy:
 
 * **Pessimistic Row-Level Locking:** Source and destination accounts are secured using `PESSIMISTIC_WRITE` (`SELECT ... FOR UPDATE` semantics in PostgreSQL) to serialize concurrent operations on the same wallet.
-* **Deterministic Acquisition:** To prevent database deadlocks when multiple threads attempt cross-transfers (e.g., A -> B and B -> A simultaneously), account locks are strictly acquired in lexicographical order.
-* **Optimistic Safeguards:** `@Version` annotations provide a secondary layer of version-based conflict detection.
+* **Deterministic Acquisition:** To prevent database deadlocks when multiple threads attempt cross-transfers (e.g., A -> B and B -> A simultaneously), account locks are strictly acquired in lexicographical order based on the account number.
+* **Optimistic Safeguards:** `@Version` annotations on the `Account` entity provide a secondary layer of version-based conflict detection, ensuring lost updates are caught even if explicit locks are bypassed.
 
 ### 3. Distributed Idempotency
 
-Financial APIs must tolerate network unreliability. The `POST /api/v1/transfers` endpoint mandates an `Idempotency-Key` header. Keys are persisted with unique database constraints. In-flight duplicate requests are rejected with `409 Conflict`, while replays of completed requests safely return the cached transaction state, preventing double-charging.
+Financial APIs must tolerate network unreliability. The `POST /api/v1/transfers` endpoint mandates an `Idempotency-Key` header. Keys are persisted with unique database constraints.
 
-### 4. Transaction-Safe Audit Logging
+* **In-flight Duplicates:** Rejected instantly with a `409 Conflict` (mapped from `DataIntegrityViolationException`).
+* **Completed Replays:** Safely return the cached transaction state, preventing double-charging.
 
-Compliance logs are decoupled from core business logic using Spring Application Events. By binding the audit listener to `@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)`, the system guarantees that audit records are *only* asynchronously written to the `audit_logs` table if the primary transfer commits successfully, eliminating the risk of orphan logs.
+### 4. Transaction-Safe Audit & Failure Logging
 
-## Performance Benchmarks
+Compliance logs are decoupled from core business logic using Spring Application Events.
 
-LedgerX includes a comprehensive k6 load-testing suite (`scripts/load_test.js`) to validate locking correctness under stress.
+* **Success Logging:** By binding the audit listener to `@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)`, the system guarantees that audit records are *only* asynchronously written to the `audit_logs` table if the primary transfer commits successfully, eliminating orphan logs.
+* **Failure Tracking:** Business validation failures (e.g., `InsufficientFundsException`) trigger a separate logging service running with `Propagation.REQUIRES_NEW`. This ensures the failure attempt is securely recorded to the database even as the main transfer transaction rolls back.
 
-* **Scenario:** 50 concurrent virtual users executing cross-account transfers.
-* **Throughput:** 500+ TPS.
-* **Validation:** Zero dropped requests, zero deadlocks, and strict adherence to double-entry invariants post-execution.
+## Testing & Quality Assurance
+
+LedgerX relies on a rigorous testing pipeline to guarantee financial correctness:
+
+* **Testcontainers Integration:** All repository and service tests run against a disposable, containerized PostgreSQL instance, ensuring locking behaviors exactly match production environments.
+* **Concurrency Stress Tests:** A dedicated `TransferServiceConcurrencyTest` utilizes `ExecutorService` and `CountDownLatch` to blast the service with 100+ simultaneous threads, asserting that race conditions do not occur and that final balances precisely match the ledger entries.
+* **K6 Load Testing:** A k6 script (`scripts/load_test.js`) validates system throughput, currently benchmarking at **500+ TPS** with zero dropped requests and zero data integrity violations.
 
 *(Note: Replace with your actual k6 terminal screenshot)*
 
@@ -94,11 +104,9 @@ The schema is managed strictly via Flyway. Migrations (`V1__init.sql`, `V2__seed
 
 ```bash
 cd LedgerX
-# Export environment variables
 export SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/ledgerx
 export SPRING_DATASOURCE_USERNAME=postgres
 export SPRING_DATASOURCE_PASSWORD=postgres
-
 ./gradlew bootRun
 
 ```
@@ -116,16 +124,47 @@ The dashboard will be available at `http://localhost:3000`.
 
 ## API Reference
 
-| Method | Endpoint | Description |
-| --- | --- | --- |
-| `POST` | `/api/v1/transfers` | Executes an atomic transfer. Requires `Idempotency-Key` header and JSON payload (`fromAccount`, `toAccount`, `amount`, `currency`). |
-| `GET` | `/api/v1/accounts/{accountNumber}` | Retrieves the current snapshot and balance of a specific account. |
-| `GET` | `/api/v1/transactions/recent` | Retrieves a paginated feed of the most recent ledger events. |
+### 1. Execute Transfer
+
+`POST /api/v1/transfers`
+Executes an atomic transfer.
+**Headers:**
+
+* `Idempotency-Key` (Required, UUID)
+
+**Request Body:**
+
+```json
+{
+  "fromAccount": "ACC-A-001",
+  "toAccount": "ACC-B-001",
+  "amount": 50.00,
+  "currency": "USD"
+}
+
+```
+
+**Responses:**
+
+* `200 OK`: Transfer successful or cached response returned.
+* `400 Bad Request`: Validation failure (e.g., negative amount).
+* `409 Conflict`: Idempotency collision or database lock contention.
+* `422 Unprocessable Entity`: Insufficient funds.
+
+### 2. Fetch Account
+
+`GET /api/v1/accounts/{accountNumber}`
+Retrieves the current snapshot and balance of a specific account.
+
+### 3. Transfer Feed
+
+`GET /api/v1/transactions/recent?limit=10`
+Retrieves a paginated feed of the most recent ledger events.
 
 ## Author
 
 **Artem Moshnin**
 * Full-Stack Software Engineer & ML Specialist
-* [Website & Portfolio](https://artemmoshnin.com) 
+* [Personal Website](https://artemmoshnin.com) 
 * [LinkedIn](https://linkedin.com/in/amoshnin) 
 * [GitHub](https://github.com/amoshnin)
