@@ -12,10 +12,7 @@ services:
     plan: free
     dockerfilePath: ./Dockerfile
     autoDeploy: true
-    buildCommand: echo "Using GRADLE_OPTS=-Xmx2g -Dorg.gradle.daemon=false" # Optional log
     envVars:
-      - key: GRADLE_OPTS
-        value: -Xmx2g -XX:MaxMetaspaceSize=128m -Dorg.gradle.jvmargs="-Xmx2g -XX:MaxMetaspaceSize=128m"
       - key: SPRING_DATASOURCE_URL
         fromDatabase:
           name: ledgerx-db
