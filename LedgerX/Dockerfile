@@ -1,4 +1,4 @@
-FROM gradle:8.5-jdk21-alpine AS build
+FROM gradle:8.5-jdk21-jammy AS build
 
 WORKDIR /app
 
@@ -9,11 +9,11 @@ COPY src src
 
 RUN chmod +x ./gradlew && ./gradlew clean bootJar -x test --no-daemon
 
-FROM eclipse-temurin:21-jre-alpine AS runtime
+FROM eclipse-temurin:21-jre-jammy
 
 WORKDIR /app
 
-RUN addgroup -S spring && adduser -S spring -G spring
+RUN addgroup --system spring && adduser --system --ingroup spring spring
 
 COPY --from=build /app/build/libs/*.jar /app/app.jar
 RUN chown spring:spring /app/app.jar
