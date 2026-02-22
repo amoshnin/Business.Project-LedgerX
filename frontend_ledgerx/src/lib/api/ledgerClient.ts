@@ -182,3 +182,9 @@ export async function executeTransfer(
     body: JSON.stringify(payload),
   });
 }
+
+export async function resetSystem(): Promise<void> {
+  await request<unknown>("/api/v1/demo/reset", {
+    method: "POST",
+  });
+}
