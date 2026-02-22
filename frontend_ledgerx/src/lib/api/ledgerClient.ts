@@ -1,4 +1,9 @@
-import type { Account, Transaction, TransferRequest } from "@/lib/api/types";
+import type {
+  Account,
+  SpringPage,
+  Transaction,
+  TransferRequest,
+} from "@/lib/api/types";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_LEDGERX_API_URL ?? "http://localhost:8080";
@@ -165,9 +170,16 @@ export async function getAccount(accountNumber: string): Promise<Account> {
   return request<Account>(`/api/v1/accounts/${safeAccountNumber}`);
 }
 
-export async function getRecentTransactions(limit: number): Promise<Transaction[]> {
-  const safeLimit = Math.max(1, Math.floor(limit));
-  return request<Transaction[]>(`/api/v1/transactions/recent?limit=${safeLimit}`);
+export async function getRecentTransactions(
+  page: number,
+  size: number,
+): Promise<SpringPage<Transaction>> {
+  const safePage = Math.max(0, Math.floor(page));
+  const safeSize = Math.max(1, Math.floor(size));
+
+  return request<SpringPage<Transaction>>(
+    `/api/v1/transactions?page=${safePage}&size=${safeSize}`,
+  );
 }
 
 export async function executeTransfer(
