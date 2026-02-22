@@ -14,26 +14,25 @@ The repository includes the core backend API and a Next.js operations dashboard 
 flowchart TD
     UI["Next.js Operations Dashboard"] -->|REST / JSON| API["Spring Boot API Gateway"]
     
-    subgraph Core Transfer Engine [TransferService.java]
+    subgraph Engine [Core Transfer Engine]
         API --> IDEMP{"Idempotency Check"}
-        IDEMP -- Duplicate --> REJ["Return Cached / 409 Conflict"]
-        IDEMP -- New --> LOCK["Acquire Pessimistic Locks (Ordered)"]
+        IDEMP -- "Duplicate" --> REJ["Return Cached / 409 Conflict"]
+        IDEMP -- "New" --> LOCK["Acquire Pessimistic Locks (Ordered)"]
         LOCK --> VAL["Business Rule Validation"]
         VAL --> MUT["Balance Mutation & Ledger Writes"]
     end
     
-    subgraph Relational Database (PostgreSQL)
+    subgraph Database [PostgreSQL Database]
         LOCK -->|SELECT FOR UPDATE| ACC[("accounts")]
         MUT -->|INSERT| TX[("transactions")]
         MUT -->|INSERT| LE[("ledger_entries")]
     end
     
-    subgraph Async Compliance Pipeline
-        MUT -.->|TransactionPhase.AFTER_COMMIT| EVENT["TransferCompletedEvent"]
+    subgraph Compliance [Async Compliance Pipeline]
+        MUT -.->|"AFTER_COMMIT"| EVENT["TransferCompletedEvent"]
         EVENT --> AUDIT["AuditEventListener (@Async)"]
         AUDIT -->|INSERT| AUD[("audit_logs")]
     end
-
 ```
 
 ## Core Architectural Decisions
