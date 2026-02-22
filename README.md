@@ -33,7 +33,12 @@ flowchart TD
         EVENT --> AUDIT["AuditEventListener (@Async)"]
         AUDIT -->|INSERT| AUD[("audit_logs")]
     end
+
 ```
+
+### The Operations Dashboard (Next.js)
+
+The frontend is not just a UI; it operates as a dedicated visual stress-testing harness. It features a custom concurrency simulation panel that allows users to fire bursts of up to 100 simultaneous transfer requests via `Promise.all()`. This enables real-time visual demonstration of the backend's pessimistic locking and conflict resolution strategies under heavy load.
 
 ## Core Architectural Decisions
 
@@ -163,6 +168,7 @@ Retrieves a paginated feed of the most recent ledger events.
 ## Author
 
 **Artem Moshnin** (Full-Stack Software & ML Engineer)
-* [Personal Website](https://artemmoshnin.com) 
-* [LinkedIn](https://linkedin.com/in/amoshnin) 
+
+* [Personal Website](https://artemmoshnin.com)
+* [LinkedIn](https://linkedin.com/in/amoshnin)
 * [GitHub](https://github.com/amoshnin)
