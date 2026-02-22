@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, ArrowRightLeft, Loader2, Wallet } from "lucide-react";
+import { AlertTriangle, Loader2, RefreshCw, Wallet } from "lucide-react";
 import { toast } from "sonner";
 
+import { RecentTransactionsTable } from "@/components/RecentTransactionsTable";
+import { TransferForm } from "@/components/TransferForm";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -13,17 +15,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { LedgerApiError, executeTransfer, getAccount, getRecentTransactions } from "@/lib/api/ledgerClient";
+  LedgerApiError,
+  executeTransfer,
+  getAccount,
+  getRecentTransactions,
+  resetSystem,
+} from "@/lib/api/ledgerClient";
 import type { Account, Transaction } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
@@ -54,21 +53,6 @@ function formatMoney(value: number, currency: string): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
-}
-
-function formatTimestamp(timestamp: string): string {
-  const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime())) {
-    return "n/a";
-  }
-
-  return date.toLocaleString("en-US", {
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
 }
 
 function getErrorMessage(error: unknown): string {
@@ -163,9 +147,11 @@ export default function DemoPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [manualAmount, setManualAmount] = useState("25.00");
   const [concurrency, setConcurrency] = useState(50);
+  const [isDirectionSwapped, setIsDirectionSwapped] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [isStressRunning, setIsStressRunning] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
   const [lastPolledAt, setLastPolledAt] = useState<Date | null>(null);
 
@@ -178,6 +164,12 @@ export default function DemoPage() {
     B: null,
   });
   const pollingLockRef = useRef(false);
+
+  const fromAccountNumber = isDirectionSwapped ? ACCOUNT_B_NUMBER : ACCOUNT_A_NUMBER;
+  const toAccountNumber = isDirectionSwapped ? ACCOUNT_A_NUMBER : ACCOUNT_B_NUMBER;
+  const activeCurrency = isDirectionSwapped
+    ? wallets.B?.currency ?? wallets.A?.currency ?? DEFAULT_CURRENCY
+    : wallets.A?.currency ?? wallets.B?.currency ?? DEFAULT_CURRENCY;
 
   const applyWalletUpdate = useCallback((key: WalletKey, nextAccount: Account) => {
     const nextBalance = toNumber(nextAccount.balance);
@@ -213,15 +205,12 @@ export default function DemoPage() {
 
   const fetchRecentLedger = useCallback(async () => {
     const result = await getRecentTransactions(20);
-    const completedOnly = result.filter(
-      (transaction) => transaction.status?.toUpperCase() === "COMPLETED",
-    );
-    setTransactions(completedOnly);
+    setTransactions(result);
   }, []);
 
   const refreshDashboard = useCallback(
-    async (notifyOnError = false) => {
-      if (pollingLockRef.current) {
+    async (notifyOnError = false, force = false) => {
+      if (pollingLockRef.current && !force) {
         return;
       }
 
@@ -295,10 +284,10 @@ export default function DemoPage() {
     setIsSending(true);
     try {
       const transaction = await executeTransfer({
-        fromAccount: ACCOUNT_A_NUMBER,
-        toAccount: ACCOUNT_B_NUMBER,
+        fromAccount: fromAccountNumber,
+        toAccount: toAccountNumber,
         amount: amountValue,
-        currency: wallets.A?.currency ?? wallets.B?.currency ?? DEFAULT_CURRENCY,
+        currency: activeCurrency,
       });
 
       toast.success("Transfer completed", {
@@ -324,10 +313,10 @@ export default function DemoPage() {
 
     const startedAt = performance.now();
     const requestPayload = {
-      fromAccount: ACCOUNT_A_NUMBER,
-      toAccount: ACCOUNT_B_NUMBER,
+      fromAccount: fromAccountNumber,
+      toAccount: toAccountNumber,
       amount: STRESS_TRANSFER_AMOUNT,
-      currency: wallets.A?.currency ?? wallets.B?.currency ?? DEFAULT_CURRENCY,
+      currency: activeCurrency,
     };
 
     try {
@@ -387,19 +376,54 @@ export default function DemoPage() {
     }
   }
 
+  async function handleResetSystem() {
+    setIsResetting(true);
+    try {
+      await resetSystem();
+      toast.success("Demo reset completed", {
+        description: "System state has been reset. Refreshing live data...",
+      });
+      await refreshDashboard(false, true);
+    } catch (error) {
+      toast.error("Reset failed", {
+        description: getErrorMessage(error),
+      });
+    } finally {
+      setIsResetting(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
-      <header className="space-y-2">
-        <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-          Demo Console
-        </p>
-        <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
-          High-Concurrency Transfer Dashboard
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Polling every 2 seconds for wallets and completed ledger events.
-          {lastPolledAt ? ` Last sync: ${lastPolledAt.toLocaleTimeString("en-US")}.` : ""}
-        </p>
+      <header className="space-y-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-2">
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+              Demo Console
+            </p>
+            <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+              High-Concurrency Transfer Dashboard
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Polling every 2 seconds for wallets and transactions.
+              {lastPolledAt
+                ? ` Last sync: ${lastPolledAt.toLocaleTimeString("en-US")}.`
+                : ""}
+            </p>
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleResetSystem}
+            disabled={isResetting}
+            className="self-start"
+          >
+            <RefreshCw className={cn("size-4", isResetting && "animate-spin")} />
+            Reset Demo
+          </Button>
+        </div>
+
         {liveError ? (
           <p className="inline-flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive-foreground/90">
             <AlertTriangle className="size-3.5" />
@@ -424,43 +448,15 @@ export default function DemoPage() {
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ArrowRightLeft className="size-4 text-cyan-300" />
-              Manual Transfer Form
-            </CardTitle>
-            <CardDescription>
-              Transfer from {ACCOUNT_A_NUMBER} to {ACCOUNT_B_NUMBER}.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form className="space-y-4" onSubmit={handleManualTransfer}>
-              <div className="space-y-2">
-                <label
-                  htmlFor="transfer-amount"
-                  className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
-                >
-                  Amount
-                </label>
-                <Input
-                  id="transfer-amount"
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  inputMode="decimal"
-                  value={manualAmount}
-                  onChange={(event) => setManualAmount(event.target.value)}
-                  placeholder="0.00"
-                />
-              </div>
-              <Button type="submit" disabled={isSending} className="w-full">
-                {isSending ? <Loader2 className="size-4 animate-spin" /> : null}
-                Send Transfer
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
+        <TransferForm
+          fromAccount={fromAccountNumber}
+          toAccount={toAccountNumber}
+          amount={manualAmount}
+          isSubmitting={isSending}
+          onAmountChange={setManualAmount}
+          onSwapDirection={() => setIsDirectionSwapped((current) => !current)}
+          onSubmit={handleManualTransfer}
+        />
 
         <Card>
           <CardHeader>
@@ -488,7 +484,18 @@ export default function DemoPage() {
                 onValueChange={(value) => setConcurrency(value[0] ?? 10)}
               />
               <p className="text-xs text-muted-foreground">
-                Each request transfers {formatMoney(STRESS_TRANSFER_AMOUNT, wallets.A?.currency ?? DEFAULT_CURRENCY)} from Account A to Account B.
+                Each request transfers
+                {" "}
+                {formatMoney(STRESS_TRANSFER_AMOUNT, activeCurrency)}
+                {" "}
+                from
+                {" "}
+                <span className="font-medium text-foreground">{fromAccountNumber}</span>
+                {" "}
+                to
+                {" "}
+                <span className="font-medium text-foreground">{toAccountNumber}</span>
+                .
               </p>
             </div>
             <Button
@@ -504,56 +511,10 @@ export default function DemoPage() {
         </Card>
       </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Live Ledger</CardTitle>
-          <CardDescription>
-            Latest completed transactions (refreshes every 2 seconds)
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Created At</TableHead>
-                <TableHead>Transaction ID</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Idempotency Key</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {transactions.length > 0 ? (
-                transactions.map((transaction) => (
-                  <TableRow key={transaction.id}>
-                    <TableCell className="text-muted-foreground">
-                      {formatTimestamp(transaction.createdAt)}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-foreground">
-                      {transaction.id}
-                    </TableCell>
-                    <TableCell>
-                      <span className="inline-flex rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-200">
-                        {transaction.status}
-                      </span>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">
-                      {transaction.idempotencyKey}
-                    </TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">
-                    {isInitialLoading
-                      ? "Loading ledger feed..."
-                      : "No completed transactions yet."}
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <RecentTransactionsTable
+        transactions={transactions}
+        isLoading={isInitialLoading}
+      />
     </div>
   );
 }
