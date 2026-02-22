@@ -14,6 +14,8 @@ import java.util.UUID;
 
 public interface AccountRepository extends JpaRepository<Account, UUID> {
 
+    Optional<Account> findByAccountNumber(String accountNumber);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @QueryHints({@QueryHint(name = "javax.persistence.lock.timeout", value = "3000")})
     @Query("select a from Account a where a.accountNumber = :accountNumber")
