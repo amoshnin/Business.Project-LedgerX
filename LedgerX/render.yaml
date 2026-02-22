@@ -9,6 +9,7 @@ services:
   - type: web
     name: ledgerx-backend
     runtime: docker
+    rootDir: LedgerX
     plan: free
     dockerfilePath: ./Dockerfile
     autoDeploy: true
