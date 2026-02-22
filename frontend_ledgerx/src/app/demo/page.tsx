@@ -23,7 +23,7 @@ import {
   getRecentTransactions,
   resetSystem,
 } from "@/lib/api/ledgerClient";
-import type { Account, Transaction } from "@/lib/api/types";
+import type { Account, SpringPage, Transaction } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 const ACCOUNT_A_NUMBER =
@@ -35,6 +35,7 @@ const ACCOUNT_B_NUMBER =
   process.env.NEXT_PUBLIC_ACCOUNT_B ??
   "ACC-B-001";
 const POLL_INTERVAL_MS = 2_000;
+const TRANSACTIONS_PAGE_SIZE = 12;
 const DEFAULT_CURRENCY = "USD";
 const STRESS_TRANSFER_AMOUNT = 1;
 
@@ -144,7 +145,10 @@ export default function DemoPage() {
     A: null,
     B: null,
   });
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [transactionsPage, setTransactionsPage] = useState<SpringPage<Transaction> | null>(
+    null,
+  );
+  const [currentPage, setCurrentPage] = useState(0);
   const [manualAmount, setManualAmount] = useState("25.00");
   const [concurrency, setConcurrency] = useState(50);
   const [isDirectionSwapped, setIsDirectionSwapped] = useState(false);
@@ -164,6 +168,7 @@ export default function DemoPage() {
     B: null,
   });
   const pollingLockRef = useRef(false);
+  const hasLoadedRef = useRef(false);
 
   const fromAccountNumber = isDirectionSwapped ? ACCOUNT_B_NUMBER : ACCOUNT_A_NUMBER;
   const toAccountNumber = isDirectionSwapped ? ACCOUNT_A_NUMBER : ACCOUNT_B_NUMBER;
@@ -203,13 +208,13 @@ export default function DemoPage() {
     applyWalletUpdate("B", accountB);
   }, [applyWalletUpdate]);
 
-  const fetchRecentLedger = useCallback(async () => {
-    const result = await getRecentTransactions(20);
-    setTransactions(result);
+  const fetchRecentLedger = useCallback(async (page: number) => {
+    const result = await getRecentTransactions(page, TRANSACTIONS_PAGE_SIZE);
+    setTransactionsPage(result);
   }, []);
 
   const refreshDashboard = useCallback(
-    async (notifyOnError = false, force = false) => {
+    async (notifyOnError = false, force = false, page = currentPage) => {
       if (pollingLockRef.current && !force) {
         return;
       }
@@ -218,7 +223,7 @@ export default function DemoPage() {
       try {
         const [walletsResult, txResult] = await Promise.allSettled([
           fetchWallets(),
-          fetchRecentLedger(),
+          fetchRecentLedger(page),
         ]);
 
         const failures: string[] = [];
@@ -247,14 +252,16 @@ export default function DemoPage() {
         pollingLockRef.current = false;
       }
     },
-    [fetchRecentLedger, fetchWallets],
+    [currentPage, fetchRecentLedger, fetchWallets],
   );
 
   useEffect(() => {
-    void refreshDashboard(true);
+    const shouldNotifyOnError = !hasLoadedRef.current;
+    hasLoadedRef.current = true;
+    void refreshDashboard(shouldNotifyOnError, true, currentPage);
 
     const intervalId = window.setInterval(() => {
-      void refreshDashboard(false);
+      void refreshDashboard(false, false, currentPage);
     }, POLL_INTERVAL_MS);
     const flashTimeouts = flashTimeoutRef.current;
 
@@ -268,7 +275,7 @@ export default function DemoPage() {
         }
       }
     };
-  }, [refreshDashboard]);
+  }, [currentPage, refreshDashboard]);
 
   async function handleManualTransfer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -383,7 +390,8 @@ export default function DemoPage() {
       toast.success("Demo reset completed", {
         description: "System state has been reset. Refreshing live data...",
       });
-      await refreshDashboard(false, true);
+      setCurrentPage(0);
+      await refreshDashboard(false, true, 0);
     } catch (error) {
       toast.error("Reset failed", {
         description: getErrorMessage(error),
@@ -391,6 +399,21 @@ export default function DemoPage() {
     } finally {
       setIsResetting(false);
     }
+  }
+
+  function handlePreviousPage() {
+    setCurrentPage((previous) => Math.max(previous - 1, 0));
+  }
+
+  function handleNextPage() {
+    setCurrentPage((previous) => {
+      const totalPages = transactionsPage?.totalPages ?? 0;
+      if (totalPages <= 0) {
+        return previous;
+      }
+
+      return Math.min(previous + 1, totalPages - 1);
+    });
   }
 
   return (
@@ -512,8 +535,11 @@ export default function DemoPage() {
       </section>
 
       <RecentTransactionsTable
-        transactions={transactions}
+        pageData={transactionsPage}
         isLoading={isInitialLoading}
+        currentPage={currentPage}
+        onPreviousPage={handlePreviousPage}
+        onNextPage={handleNextPage}
       />
     </div>
   );

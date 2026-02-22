@@ -5,6 +5,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -13,11 +14,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { Transaction } from "@/lib/api/types";
+import type { SpringPage, Transaction } from "@/lib/api/types";
 
 type RecentTransactionsTableProps = {
-  transactions: Transaction[];
+  pageData: SpringPage<Transaction> | null;
   isLoading: boolean;
+  currentPage: number;
+  onPreviousPage: () => void;
+  onNextPage: () => void;
 };
 
 function formatTimestamp(timestamp: string): string {
@@ -60,10 +64,39 @@ function getStatusBadge(status: string) {
   };
 }
 
+function formatAmount(value: number | undefined, currency: string | null | undefined) {
+  const numericValue = Number(value ?? 0);
+  const safeValue = Number.isFinite(numericValue) ? numericValue : 0;
+  const code = (currency ?? "USD").toUpperCase();
+
+  try {
+    const formatted = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: code,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(safeValue);
+
+    return `${formatted} ${code}`;
+  } catch {
+    return `${safeValue.toFixed(2)} ${code}`;
+  }
+}
+
 export function RecentTransactionsTable({
-  transactions,
+  pageData,
   isLoading,
+  currentPage,
+  onPreviousPage,
+  onNextPage,
 }: RecentTransactionsTableProps) {
+  const transactions = pageData?.content ?? [];
+  const totalPages = pageData?.totalPages ?? 0;
+  const currentPageDisplay = totalPages > 0 ? Math.min(currentPage + 1, totalPages) : 1;
+  const totalPagesDisplay = Math.max(totalPages, 1);
+  const isPreviousDisabled = isLoading || currentPage === 0;
+  const isNextDisabled = isLoading || totalPages === 0 || currentPage >= totalPages - 1;
+
   return (
     <Card>
       <CardHeader>
@@ -77,6 +110,9 @@ export function RecentTransactionsTable({
           <TableHeader>
             <TableRow>
               <TableHead>Created At</TableHead>
+              <TableHead>From</TableHead>
+              <TableHead>To</TableHead>
+              <TableHead>Amount</TableHead>
               <TableHead>Transaction ID</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Idempotency Key</TableHead>
@@ -91,6 +127,17 @@ export function RecentTransactionsTable({
                   <TableRow key={transaction.id}>
                     <TableCell className="text-muted-foreground">
                       {formatTimestamp(transaction.createdAt)}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-foreground">
+                      {transaction.status?.toUpperCase() === "FAILED"
+                        ? "N/A"
+                        : transaction.fromAccount ?? "N/A"}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-foreground">
+                      {transaction.toAccount ?? "N/A"}
+                    </TableCell>
+                    <TableCell className="font-semibold tabular-nums text-foreground">
+                      {formatAmount(transaction.amount, transaction.currency)}
                     </TableCell>
                     <TableCell className="font-mono text-xs text-foreground">
                       {transaction.id}
@@ -111,7 +158,7 @@ export function RecentTransactionsTable({
             ) : (
               <TableRow>
                 <TableCell
-                  colSpan={4}
+                  colSpan={7}
                   className="py-10 text-center text-sm text-muted-foreground"
                 >
                   {isLoading ? "Loading ledger feed..." : "No transactions yet."}
@@ -120,6 +167,32 @@ export function RecentTransactionsTable({
             )}
           </TableBody>
         </Table>
+
+        <div className="mt-4 flex items-center justify-between border-t border-border/60 pt-4">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onPreviousPage}
+            disabled={isPreviousDisabled}
+          >
+            Previous
+          </Button>
+
+          <p className="text-sm text-muted-foreground">
+            Page {currentPageDisplay} of {totalPagesDisplay}
+          </p>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onNextPage}
+            disabled={isNextDisabled}
+          >
+            Next
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
