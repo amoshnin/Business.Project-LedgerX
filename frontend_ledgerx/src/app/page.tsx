@@ -29,6 +29,9 @@ export default function Home() {
             optimistic and pessimistic locking, and immutable double-entry
             accounting at scale.
           </p>
+          <p className="inline-flex w-fit items-center rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs font-medium tracking-wide text-muted-foreground">
+            Artem Moshnin · Lead Software Engineer
+          </p>
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row">
