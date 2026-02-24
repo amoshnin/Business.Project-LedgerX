@@ -146,9 +146,10 @@ async function request<T>(
   init?: RequestInit,
   options?: RequestOptions,
 ): Promise<T> {
-  const controller = options?.timeoutMs ? new AbortController() : null;
+  const timeoutMs = options?.timeoutMs;
+  const controller = timeoutMs ? new AbortController() : null;
   const timeoutId = controller
-    ? setTimeout(() => controller.abort(), options.timeoutMs)
+    ? setTimeout(() => controller.abort(), timeoutMs)
     : null;
   let response: Response;
   try {
