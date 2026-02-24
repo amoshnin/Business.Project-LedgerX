@@ -22,6 +22,10 @@ type BackendErrorPayload = {
   message?: string;
 };
 
+type RequestOptions = {
+  timeoutMs?: number;
+};
+
 export class LedgerApiError extends Error {
   readonly status: number | null;
   readonly code: ApiErrorCode;
@@ -137,11 +141,20 @@ function formatHttpError(status: number, data: unknown): LedgerApiError {
   });
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  options?: RequestOptions,
+): Promise<T> {
+  const controller = options?.timeoutMs ? new AbortController() : null;
+  const timeoutId = controller
+    ? setTimeout(() => controller.abort(), options.timeoutMs)
+    : null;
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...init,
+      signal: controller?.signal,
       headers: {
         Accept: "application/json",
         ...(init?.headers ?? {}),
@@ -149,12 +162,31 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       cache: "no-store",
     });
   } catch (error) {
+    if (
+      controller &&
+      typeof error === "object" &&
+      error !== null &&
+      "name" in error &&
+      error.name === "AbortError"
+    ) {
+      throw new LedgerApiError({
+        status: null,
+        code: "NETWORK_ERROR",
+        message: "Request timed out while waiting for the LedgerX API.",
+        details: error,
+      });
+    }
+
     throw new LedgerApiError({
       status: null,
       code: "NETWORK_ERROR",
       message: "Unable to reach LedgerX API. Check that the backend is running.",
       details: error,
     });
+  } finally {
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+    }
   }
 
   const body = await parseBody(response);
@@ -199,4 +231,8 @@ export async function resetSystem(): Promise<void> {
   await request<unknown>("/api/v1/demo/reset", {
     method: "POST",
   });
+}
+
+export async function getBackendHealth(timeoutMs = 60_000): Promise<{ status: string }> {
+  return request<{ status: string }>("/health", undefined, { timeoutMs });
 }

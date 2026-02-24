@@ -7,6 +7,10 @@ import { toast } from "sonner";
 
 import { RecentTransactionsTable } from "@/components/RecentTransactionsTable";
 import { TransferForm } from "@/components/TransferForm";
+import {
+  BackendUnavailableError,
+  useBackendStatus,
+} from "@/components/providers/BackendStatusProvider";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -137,6 +141,7 @@ function AccountBalanceCard({
 }
 
 export default function DemoPage() {
+  const { status: backendStatus, ensureBackendReadyForUserAction } = useBackendStatus();
   const [wallets, setWallets] = useState<{ A: Account | null; B: Account | null }>({
     A: null,
     B: null,
@@ -256,6 +261,16 @@ export default function DemoPage() {
   );
 
   useEffect(() => {
+    if (backendStatus === "waking") {
+      return;
+    }
+
+    if (backendStatus === "error") {
+      setIsInitialLoading(false);
+      setLiveError("Backend unavailable. Please try again later.");
+      return;
+    }
+
     const shouldNotifyOnError = !hasLoadedRef.current;
     hasLoadedRef.current = true;
     void refreshDashboard(shouldNotifyOnError, true, currentPage);
@@ -275,7 +290,7 @@ export default function DemoPage() {
         }
       }
     };
-  }, [currentPage, refreshDashboard]);
+  }, [backendStatus, currentPage, refreshDashboard]);
 
   async function handleManualTransfer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -290,6 +305,8 @@ export default function DemoPage() {
 
     setIsSending(true);
     try {
+      await ensureBackendReadyForUserAction();
+
       const transaction = await executeTransfer({
         fromAccount: fromAccountNumber,
         toAccount: toAccountNumber,
@@ -307,6 +324,8 @@ export default function DemoPage() {
         toast.error("Conflict detected", { description: error.message });
       } else if (error instanceof LedgerApiError && error.status === 422) {
         toast.error("Insufficient funds", { description: error.message });
+      } else if (error instanceof BackendUnavailableError) {
+        return;
       } else {
         toast.error("Transfer failed", { description: getErrorMessage(error) });
       }
@@ -327,6 +346,8 @@ export default function DemoPage() {
     };
 
     try {
+      await ensureBackendReadyForUserAction();
+
       const batch = Array.from({ length: concurrency }, () =>
         executeTransfer(requestPayload)
           .then(() => ({ ok: true as const }))
@@ -375,6 +396,10 @@ export default function DemoPage() {
 
       void refreshDashboard(false);
     } catch (error) {
+      if (error instanceof BackendUnavailableError) {
+        return;
+      }
+
       toast.error("Stress test failed", {
         description: getErrorMessage(error),
       });
@@ -386,6 +411,8 @@ export default function DemoPage() {
   async function handleResetSystem() {
     setIsResetting(true);
     try {
+      await ensureBackendReadyForUserAction();
+
       await resetSystem();
       toast.success("Demo reset completed", {
         description: "System state has been reset. Refreshing live data...",
@@ -393,6 +420,10 @@ export default function DemoPage() {
       setCurrentPage(0);
       await refreshDashboard(false, true, 0);
     } catch (error) {
+      if (error instanceof BackendUnavailableError) {
+        return;
+      }
+
       toast.error("Reset failed", {
         description: getErrorMessage(error),
       });
@@ -402,18 +433,48 @@ export default function DemoPage() {
   }
 
   function handlePreviousPage() {
-    setCurrentPage((previous) => Math.max(previous - 1, 0));
+    void (async () => {
+      try {
+        await ensureBackendReadyForUserAction();
+      } catch (error) {
+        if (error instanceof BackendUnavailableError) {
+          return;
+        }
+
+        toast.error("Unable to load page", {
+          description: getErrorMessage(error),
+        });
+        return;
+      }
+
+      setCurrentPage((previous) => Math.max(previous - 1, 0));
+    })();
   }
 
   function handleNextPage() {
-    setCurrentPage((previous) => {
-      const totalPages = transactionsPage?.totalPages ?? 0;
-      if (totalPages <= 0) {
-        return previous;
+    void (async () => {
+      try {
+        await ensureBackendReadyForUserAction();
+      } catch (error) {
+        if (error instanceof BackendUnavailableError) {
+          return;
+        }
+
+        toast.error("Unable to load page", {
+          description: getErrorMessage(error),
+        });
+        return;
       }
 
-      return Math.min(previous + 1, totalPages - 1);
-    });
+      setCurrentPage((previous) => {
+        const totalPages = transactionsPage?.totalPages ?? 0;
+        if (totalPages <= 0) {
+          return previous;
+        }
+
+        return Math.min(previous + 1, totalPages - 1);
+      });
+    })();
   }
 
   return (
