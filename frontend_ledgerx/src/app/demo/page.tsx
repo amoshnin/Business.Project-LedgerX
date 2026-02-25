@@ -99,7 +99,7 @@ function getBackendStatusCopy(status: BackendStatus) {
   return {
     label: "Backend waking up",
     message:
-      "Cold start in progress after inactivity. First load can take up to ~60 seconds while the server wakes up.",
+      "Cold start in progress after inactivity.\nFirst load can take up to 2-3 minutes while the server wakes up. Appreciate your patience.",
     toneClassName:
       "border-amber-400/35 bg-amber-400/10 text-amber-100",
     Icon: Loader2,
@@ -548,7 +548,9 @@ export default function DemoPage() {
               />
               <span>
                 <span className="font-semibold">{backendStatusCopy.label}.</span>{" "}
-                {backendStatusCopy.message}
+                <span className="whitespace-pre-line">
+                  {backendStatusCopy.message}
+                </span>
               </span>
             </div>
           </div>

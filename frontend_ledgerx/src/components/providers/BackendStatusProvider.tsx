@@ -22,7 +22,9 @@ type BackendStatusContextValue = {
   ensureBackendReadyForUserAction: () => Promise<void>;
 };
 
-const HEALTH_TIMEOUT_MS = 60_000;
+const HEALTH_CHECK_TIMEOUT_MS = 15_000;
+const WAKE_RETRY_INTERVAL_MS = 30_000;
+const WAKE_MAX_WAIT_MS = 5 * 60_000;
 const READY_FLASH_MS = 1_500;
 
 const BackendStatusContext = createContext<BackendStatusContextValue | null>(null);
@@ -42,6 +44,12 @@ export class BackendUnavailableError extends Error {
     super(message);
     this.name = "BackendUnavailableError";
   }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function BackendStatusBadge({ notice }: { notice: NoticeState | null }) {
@@ -187,14 +195,39 @@ export function BackendStatusProvider({ children }: { children: ReactNode }) {
     }
 
     wakePromiseRef.current = (async () => {
+      const startedAt = Date.now();
       try {
-        const response = await getBackendHealth(HEALTH_TIMEOUT_MS);
-        if (response.status === "ok") {
-          setBackendStatus("ready");
-          return;
+        while (Date.now() - startedAt < WAKE_MAX_WAIT_MS) {
+          const attemptStartedAt = Date.now();
+          try {
+            const response = await getBackendHealth(HEALTH_CHECK_TIMEOUT_MS);
+            if (response.status === "ok") {
+              setBackendStatus("ready");
+              return;
+            }
+          } catch (error) {
+            if (error instanceof Error && error.message.trim()) {
+              errorMessageRef.current = `⚠️ ${error.message}`;
+            }
+          }
+
+          const remainingMs = WAKE_MAX_WAIT_MS - (Date.now() - startedAt);
+          if (remainingMs <= 0) {
+            break;
+          }
+
+          const elapsedSinceAttemptStart = Date.now() - attemptStartedAt;
+          const nextDelayMs = Math.min(
+            Math.max(0, WAKE_RETRY_INTERVAL_MS - elapsedSinceAttemptStart),
+            remainingMs,
+          );
+          if (nextDelayMs > 0) {
+            await delay(nextDelayMs);
+          }
         }
 
-        errorMessageRef.current = "⚠️ Backend unavailable. Please try again later.";
+        errorMessageRef.current =
+          "⚠️ Backend is still unavailable after waiting up to 5 minutes. Please try again later.";
         setBackendStatus("error");
       } catch (error) {
         if (error instanceof Error && error.message.trim()) {
