@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, Loader2, RefreshCw, Wallet } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Wallet } from "lucide-react";
 import { toast } from "sonner";
 
 import { RecentTransactionsTable } from "@/components/RecentTransactionsTable";
 import { TransferForm } from "@/components/TransferForm";
 import {
   BackendUnavailableError,
+  type BackendStatus,
   useBackendStatus,
 } from "@/components/providers/BackendStatusProvider";
 import { Button } from "@/components/ui/button";
@@ -70,6 +71,40 @@ function getErrorMessage(error: unknown): string {
   }
 
   return "Unexpected request error.";
+}
+
+function getBackendStatusCopy(status: BackendStatus) {
+  if (status === "ready") {
+    return {
+      label: "Backend ready",
+      message: "API is online. Demo controls are enabled and live polling is active.",
+      toneClassName:
+        "border-emerald-500/30 bg-emerald-500/10 text-emerald-100",
+      Icon: CheckCircle2,
+      iconClassName: "text-emerald-300",
+    };
+  }
+
+  if (status === "error") {
+    return {
+      label: "Backend unavailable",
+      message: "API is not responding right now. Please wait and try again.",
+      toneClassName:
+        "border-rose-500/35 bg-rose-500/10 text-rose-100",
+      Icon: AlertTriangle,
+      iconClassName: "text-rose-300",
+    };
+  }
+
+  return {
+    label: "Backend waking up",
+    message:
+      "Cold start in progress after inactivity. First load can take up to ~60 seconds while the server wakes up.",
+    toneClassName:
+      "border-amber-400/35 bg-amber-400/10 text-amber-100",
+    Icon: Loader2,
+    iconClassName: "text-amber-300",
+  };
 }
 
 function AccountBalanceCard({
@@ -181,6 +216,7 @@ export default function DemoPage() {
   const activeCurrency = isDirectionSwapped
     ? wallets.B?.currency ?? wallets.A?.currency ?? DEFAULT_CURRENCY
     : wallets.A?.currency ?? wallets.B?.currency ?? DEFAULT_CURRENCY;
+  const backendStatusCopy = getBackendStatusCopy(backendStatus);
 
   const applyWalletUpdate = useCallback((key: WalletKey, nextAccount: Account) => {
     const nextBalance = toNumber(nextAccount.balance);
@@ -495,6 +531,26 @@ export default function DemoPage() {
                 ? ` Last sync: ${lastPolledAt.toLocaleTimeString("en-US")}.`
                 : ""}
             </p>
+            <div
+              className={cn(
+                "inline-flex max-w-2xl items-start gap-2 rounded-md border px-3 py-2 text-xs",
+                backendStatusCopy.toneClassName,
+              )}
+              role="status"
+              aria-live="polite"
+            >
+              <backendStatusCopy.Icon
+                className={cn(
+                  "mt-0.5 size-3.5 shrink-0",
+                  backendStatus === "waking" && "animate-spin",
+                  backendStatusCopy.iconClassName,
+                )}
+              />
+              <span>
+                <span className="font-semibold">{backendStatusCopy.label}.</span>{" "}
+                {backendStatusCopy.message}
+              </span>
+            </div>
           </div>
 
           <Button
