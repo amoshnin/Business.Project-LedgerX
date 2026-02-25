@@ -39,7 +39,7 @@ export default function RootLayout({
             <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_20%_10%,rgba(99,102,241,0.2),transparent_40%),radial-gradient(circle_at_80%_0%,rgba(20,184,166,0.15),transparent_35%)]" />
 
             <header className="border-b border-border/70 bg-background/80 backdrop-blur-xl">
-              <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
+              <div className="mx-auto flex h-16 w-full max-w-[92rem] items-center justify-between px-4 sm:px-6 lg:px-6 xl:px-8">
                 <Link
                   href="/"
                   className="text-lg font-semibold tracking-tight text-foreground"
@@ -66,7 +66,7 @@ export default function RootLayout({
               </div>
             </header>
 
-            <main className="mx-auto w-full max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
+            <main className="mx-auto w-full max-w-[92rem] px-4 pt-8 pb-12 sm:px-6 sm:pt-10 lg:px-6 xl:px-8">
               {children}
             </main>
           </div>
