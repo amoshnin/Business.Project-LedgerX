@@ -177,6 +177,7 @@ export default function DemoPage() {
 
   const fromAccountNumber = isDirectionSwapped ? ACCOUNT_B_NUMBER : ACCOUNT_A_NUMBER;
   const toAccountNumber = isDirectionSwapped ? ACCOUNT_A_NUMBER : ACCOUNT_B_NUMBER;
+  const isBackendReady = backendStatus === "ready";
   const activeCurrency = isDirectionSwapped
     ? wallets.B?.currency ?? wallets.A?.currency ?? DEFAULT_CURRENCY
     : wallets.A?.currency ?? wallets.B?.currency ?? DEFAULT_CURRENCY;
@@ -500,7 +501,7 @@ export default function DemoPage() {
             type="button"
             variant="outline"
             onClick={handleResetSystem}
-            disabled={isResetting}
+            disabled={!isBackendReady || isResetting}
             className="self-start"
           >
             <RefreshCw className={cn("size-4", isResetting && "animate-spin")} />
@@ -536,6 +537,7 @@ export default function DemoPage() {
           fromAccount={fromAccountNumber}
           toAccount={toAccountNumber}
           amount={manualAmount}
+          isBackendReady={isBackendReady}
           isSubmitting={isSending}
           onAmountChange={setManualAmount}
           onSwapDirection={() => setIsDirectionSwapped((current) => !current)}
@@ -565,6 +567,7 @@ export default function DemoPage() {
                 max={100}
                 step={1}
                 value={[concurrency]}
+                disabled={!isBackendReady || isStressRunning}
                 onValueChange={(value) => setConcurrency(value[0] ?? 10)}
               />
               <p className="text-xs text-muted-foreground">
@@ -585,7 +588,7 @@ export default function DemoPage() {
             <Button
               type="button"
               onClick={handleStressTest}
-              disabled={isStressRunning}
+              disabled={!isBackendReady || isStressRunning}
               className="w-full bg-amber-400 font-semibold text-amber-950 hover:bg-amber-300"
             >
               {isStressRunning ? <Loader2 className="size-4 animate-spin" /> : null}
@@ -599,6 +602,7 @@ export default function DemoPage() {
         pageData={transactionsPage}
         isLoading={isInitialLoading}
         currentPage={currentPage}
+        interactionsDisabled={!isBackendReady}
         onPreviousPage={handlePreviousPage}
         onNextPage={handleNextPage}
       />

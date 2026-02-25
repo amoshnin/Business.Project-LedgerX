@@ -17,6 +17,7 @@ type TransferFormProps = {
   fromAccount: string;
   toAccount: string;
   amount: string;
+  isBackendReady: boolean;
   isSubmitting: boolean;
   onAmountChange: (value: string) => void;
   onSwapDirection: () => void;
@@ -27,6 +28,7 @@ export function TransferForm({
   fromAccount,
   toAccount,
   amount,
+  isBackendReady,
   isSubmitting,
   onAmountChange,
   onSwapDirection,
@@ -58,6 +60,7 @@ export function TransferForm({
               variant="outline"
               size="icon"
               onClick={onSwapDirection}
+              disabled={!isBackendReady || isSubmitting}
               className="self-center sm:mb-0.5"
               aria-label="Swap transfer direction"
               title="Swap transfer direction"
@@ -87,12 +90,17 @@ export function TransferForm({
               step="0.01"
               inputMode="decimal"
               value={amount}
+              disabled={!isBackendReady || isSubmitting}
               onChange={(event) => onAmountChange(event.target.value)}
               placeholder="0.00"
             />
           </div>
 
-          <Button type="submit" disabled={isSubmitting} className="w-full">
+          <Button
+            type="submit"
+            disabled={!isBackendReady || isSubmitting}
+            className="w-full"
+          >
             {isSubmitting ? <Loader2 className="size-4 animate-spin" /> : null}
             Send Transfer
           </Button>

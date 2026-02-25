@@ -20,6 +20,7 @@ type RecentTransactionsTableProps = {
   pageData: SpringPage<Transaction> | null;
   isLoading: boolean;
   currentPage: number;
+  interactionsDisabled?: boolean;
   onPreviousPage: () => void;
   onNextPage: () => void;
 };
@@ -87,6 +88,7 @@ export function RecentTransactionsTable({
   pageData,
   isLoading,
   currentPage,
+  interactionsDisabled = false,
   onPreviousPage,
   onNextPage,
 }: RecentTransactionsTableProps) {
@@ -94,8 +96,9 @@ export function RecentTransactionsTable({
   const totalPages = pageData?.totalPages ?? 0;
   const currentPageDisplay = totalPages > 0 ? Math.min(currentPage + 1, totalPages) : 1;
   const totalPagesDisplay = Math.max(totalPages, 1);
-  const isPreviousDisabled = isLoading || currentPage === 0;
-  const isNextDisabled = isLoading || totalPages === 0 || currentPage >= totalPages - 1;
+  const isPreviousDisabled = interactionsDisabled || isLoading || currentPage === 0;
+  const isNextDisabled =
+    interactionsDisabled || isLoading || totalPages === 0 || currentPage >= totalPages - 1;
 
   return (
     <Card>
