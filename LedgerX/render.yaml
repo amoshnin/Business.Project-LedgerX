@@ -34,3 +34,5 @@ services:
         fromDatabase:
           name: ledgerx-db
           property: password
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://business-project-ledger-x.vercel.app
