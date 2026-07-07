@@ -99,25 +99,21 @@ The following results were captured during a high-concurrency stress test using 
 
 - Java 21+
 - Node.js 20+
-- Docker (for PostgreSQL containerization)
+- Docker
 
-### 1. Infrastructure Setup
+### 1. Backend API
 
-Booting the PostgreSQL database using Docker:
+The backend and PostgreSQL database can be started together with Docker Compose:
 
 ```bash
-docker run --name ledgerx-postgres \
-  -e POSTGRES_DB=ledgerx \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -p 5432:5432 \
-  -d postgres:16
-
+docker compose up --build
 ```
 
-### 2. Backend API
+The API will be available at `http://localhost:8080`.
 
 The schema is managed strictly via Flyway. Migrations (`V1__init.sql`, `V2__seed.sql`) will execute automatically on startup.
+
+To run the backend locally without Docker, start PostgreSQL first and then run:
 
 ```bash
 cd LedgerX
@@ -128,7 +124,7 @@ export SPRING_DATASOURCE_PASSWORD=postgres
 
 ```
 
-### 3. Operations Dashboard
+### 2. Operations Dashboard
 
 ```bash
 cd frontend_ledgerx
