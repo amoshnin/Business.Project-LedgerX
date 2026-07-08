@@ -24,12 +24,13 @@ services:
       postgres:
         condition: service_healthy
     environment:
+      PORT: 8080
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: ledgerx
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: postgres
-      CORS_ALLOWED_ORIGINS: http://localhost:3000
+      CORS_ALLOWED_ORIGINS: http://localhost:3000,https://business-project-ledger-x.vercel.app
     ports:
       - "8080:8080"
 
