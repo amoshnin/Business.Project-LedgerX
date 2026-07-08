@@ -5,8 +5,35 @@ import type {
   TransferRequest,
 } from "@/lib/api/types";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_LEDGERX_API_URL ?? "http://localhost:8080";
+const DEFAULT_API_BASE_URL = "http://localhost:8080";
+
+const LOCAL_HOST_PATTERN =
+  /^(localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1\])(?::|\/|$)/i;
+
+function normalizeApiBaseUrl(value: string | undefined): string {
+  const rawValue = value?.trim();
+  if (!rawValue) {
+    return DEFAULT_API_BASE_URL;
+  }
+
+  const hasProtocol = /^[a-z][a-z\d+\-.]*:\/\//i.test(rawValue);
+  if (hasProtocol) {
+    return rawValue.replace(/\/+$/, "");
+  }
+
+  if (rawValue.startsWith("//")) {
+    const protocol =
+      typeof window !== "undefined" ? window.location.protocol : "https:";
+    return `${protocol}${rawValue}`.replace(/\/+$/, "");
+  }
+
+  const protocol = LOCAL_HOST_PATTERN.test(rawValue) ? "http" : "https";
+  return `${protocol}://${rawValue}`.replace(/\/+$/, "");
+}
+
+const API_BASE_URL = normalizeApiBaseUrl(
+  process.env.NEXT_PUBLIC_LEDGERX_API_URL,
+);
 
 type ApiErrorCode =
   | "CONFLICT"
@@ -234,6 +261,8 @@ export async function resetSystem(): Promise<void> {
   });
 }
 
-export async function getBackendHealth(timeoutMs = 60_000): Promise<{ status: string }> {
+export async function getBackendHealth(
+  timeoutMs = 60_000,
+): Promise<{ status: string }> {
   return request<{ status: string }>("/health", undefined, { timeoutMs });
 }
